@@ -1,0 +1,203 @@
+// Juego del Dinosaurio - Consola C++
+// Compilar: g++ -o dino dino_game.cpp
+// Ejecutar: ./dino
+ 
+#include <iostream>
+#include <cstdlib>
+#include <ctime>
+#include <string>
+#include <vector>
+ 
+#ifdef _WIN32
+  #include <windows.h>
+  #include <conio.h>
+  void limpiar() { system("cls"); }
+  bool teclaPresionada() { return _kbhit(); }
+  char leerTecla() { return _getch(); }
+#else
+  #include <unistd.h>
+  #include <termios.h>
+  #include <fcntl.h>
+  void limpiar() { system("clear"); }
+ 
+  bool teclaPresionada() {
+    struct termios oldt, newt;
+    int ch, oldf;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+    ch = getchar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    if (ch != EOF) { ungetc(ch, stdin); return true; }
+    return false;
+  }
+ 
+  char leerTecla() {
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    char c = getchar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return c;
+  }
+ 
+  void esperar(int ms) { usleep(ms * 1000); }
+#endif
+ 
+#ifdef _WIN32
+  void esperar(int ms) { Sleep(ms); }
+#endif
+ 
+// Dimensiones del tablero
+const int ANCHO  = 60;
+const int ALTO   = 8;
+const int SUELO  = ALTO - 2;   // fila del suelo
+const int DINO_X = 5;
+ 
+struct Obstaculo {
+    int x;
+    bool activo;
+};
+ 
+// Dibuja el dinosaurio en la fila correcta
+void dibujarTablero(int dinoFila, std::vector<Obstaculo>& obs, int puntos, int record) {
+    // Construir grid vacío
+    std::vector<std::string> grid(ALTO, std::string(ANCHO, ' '));
+ 
+    // Suelo
+    for (int i = 0; i < ANCHO; i++) grid[SUELO][i] = '_';
+ 
+    // Dinosaurio (2 filas de alto)
+    if (dinoFila - 1 >= 0 && dinoFila - 1 < ALTO)
+        grid[dinoFila - 1][DINO_X] = 'O';   // cabeza
+    if (dinoFila >= 0 && dinoFila < ALTO)
+        grid[dinoFila][DINO_X] = 'H';        // cuerpo/patas
+ 
+    // Obstáculos (cactus de 2 filas)
+    for (auto& o : obs) {
+        if (!o.activo) continue;
+        if (o.x >= 0 && o.x < ANCHO) {
+            grid[SUELO - 1][o.x] = '|';
+            grid[SUELO - 2][o.x] = 'Y';
+        }
+    }
+ 
+    // Imprimir
+    limpiar();
+    std::cout << " Puntos: " << puntos << "   Record: " << record << "\n";
+    std::cout << std::string(ANCHO + 2, '-') << "\n";
+    for (auto& fila : grid) {
+        std::cout << "|" << fila << "|\n";
+    }
+    std::cout << std::string(ANCHO + 2, '-') << "\n";
+    std::cout << " [ESPACIO] Saltar   [Q] Salir\n";
+}
+ 
+int main() {
+    srand(static_cast<unsigned>(time(0)));
+ 
+    int record = 0;
+ 
+    std::cout << "=== JUEGO DEL DINOSAURIO ===\n";
+    std::cout << "Presiona ESPACIO para saltar sobre los cactus.\n";
+    std::cout << "Presiona cualquier tecla para empezar...\n";
+    leerTecla();
+ 
+inicio:
+    // Estado del juego
+    int  dinoFila  = SUELO - 1;  // fila actual del cuerpo del dino
+    int  saltoVel  = 0;           // velocidad vertical (negativo = subir)
+    bool enSuelo   = true;
+    int  puntos    = 0;
+    int  velocidad = 120;         // ms por frame (menor = más rápido)
+ 
+    std::vector<Obstaculo> obs(3);
+    for (auto& o : obs) { o.activo = false; o.x = ANCHO + 10; }
+ 
+    int framesSiguiente = 30 + rand() % 20;
+    int contador = 0;
+ 
+    while (true) {
+        // Leer tecla sin bloquear
+        if (teclaPresionada()) {
+            char c = leerTecla();
+            if (c == ' ' && enSuelo) {
+                saltoVel = -3;
+                enSuelo  = false;
+            }
+            if (c == 'q' || c == 'Q') {
+                std::cout << "\n¡Hasta luego! Récord final: " << record << "\n";
+                return 0;
+            }
+        }
+ 
+        // Física del salto
+        if (!enSuelo) {
+            dinoFila += saltoVel;
+            saltoVel++;
+            if (dinoFila >= SUELO - 1) {
+                dinoFila = SUELO - 1;
+                enSuelo  = true;
+                saltoVel = 0;
+            }
+        }
+ 
+        // Mover obstáculos
+        for (auto& o : obs) {
+            if (o.activo) {
+                o.x--;
+                if (o.x < -1) o.activo = false;
+            }
+        }
+ 
+        // Generar nuevo obstáculo
+        contador++;
+        if (contador >= framesSiguiente) {
+            for (auto& o : obs) {
+                if (!o.activo) {
+                    o.activo = true;
+                    o.x = ANCHO - 1;
+                    break;
+                }
+            }
+            framesSiguiente = 25 + rand() % 25;
+            contador = 0;
+        }
+ 
+        // Colisión
+        for (auto& o : obs) {
+            if (!o.activo) continue;
+            // El dino ocupa columna DINO_X, filas dinoFila-1 y dinoFila
+            // El cactus ocupa columna o.x, filas SUELO-2 y SUELO-1
+            if (o.x == DINO_X &&
+               (dinoFila == SUELO - 1 || dinoFila == SUELO - 2)) {
+                if (puntos > record) record = puntos;
+                dibujarTablero(dinoFila, obs, puntos, record);
+                std::cout << "\n  *** GAME OVER ***  Puntos: " << puntos << "\n";
+                std::cout << "  [R] Reintentar   [Q] Salir\n";
+                while (true) {
+                    char c = leerTecla();
+                    if (c == 'r' || c == 'R') goto inicio;
+                    if (c == 'q' || c == 'Q') { std::cout << "\n¡Hasta luego!\n"; return 0; }
+                }
+            }
+        }
+ 
+        // Puntaje y velocidad
+        puntos++;
+        if (puntos % 50 == 0 && velocidad > 50) velocidad -= 5;
+ 
+        // Render
+        dibujarTablero(dinoFila, obs, puntos, record);
+ 
+        esperar(velocidad);
+    }
+ 
+    return 0;
+}
